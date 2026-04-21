@@ -27,7 +27,7 @@ class ItemItemRecommender(RecommenderBase):
         self.num_threads = num_threads
         self.scorer = None
 
-    def fit(self, weighted, show_progress=True, callback=None):
+    def fit(self, weighted, show_progress=True, callback=None, mininterval = 0.1):
         """Computes and stores the similarity matrix"""
         if callback:
             raise NotImplementedError("callback isn't support on ItemItemRecommender.fit")
@@ -37,6 +37,7 @@ class ItemItemRecommender(RecommenderBase):
             self.K,
             show_progress=show_progress,
             num_threads=self.num_threads,
+            mininterval = mininterval
         ).tocsr()
         self.scorer = NearestNeighboursScorer(self.similarity)
 
@@ -279,7 +280,7 @@ class ConditionalProbabilityRecommender(ItemItemRecommender):
         self.alpha = alpha
         self.row_normalize = row_normalize
 
-    def fit(self, counts, show_progress=True, callback=None):
+    def fit(self, counts, show_progress=True, callback=None,  mininterval = 0.1):
         """Computes and stores the similarity matrix using conditional probability."""
         self.similarity = conditional_probability_similarity(
             counts,
@@ -288,5 +289,6 @@ class ConditionalProbabilityRecommender(ItemItemRecommender):
             K=self.K,
             num_threads=self.num_threads,
             show_progress=show_progress,
+            mininterval = mininterval,
         ).tocsr()
         self.scorer = NearestNeighboursScorer(self.similarity)
