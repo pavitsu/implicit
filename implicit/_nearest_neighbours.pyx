@@ -109,7 +109,7 @@ cdef class NearestNeighboursScorer(object):
 
 
 @cython.boundscheck(False)
-def all_pairs_knn(users, unsigned int K=100, int num_threads=0, show_progress=True):
+def all_pairs_knn(users, unsigned int K=100, int num_threads=0, show_progress=True, mininterval = 0.1):
     """ Returns the top K nearest neighbours for each row in the matrix.
     """
     users = check_csr(users)
@@ -134,7 +134,7 @@ def all_pairs_knn(users, unsigned int K=100, int num_threads=0, show_progress=Tr
     cdef long[:] rows = np.zeros(item_count * K, dtype=int)
     cdef long[:] cols = np.zeros(item_count * K, dtype=int)
 
-    progress = tqdm(total=item_count, disable=not show_progress)
+    progress = tqdm(total=item_count, mininterval = mininterval, disable=not show_progress)
     with nogil, parallel(num_threads=num_threads):
         # allocate memory per thread
         neighbours = new SparseMatrixMultiplier[int, double](item_count)
@@ -173,7 +173,8 @@ def all_pairs_knn(users, unsigned int K=100, int num_threads=0, show_progress=Tr
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def conditional_probability_similarity(users, double alpha=0.5, bint row_normalize=False,
-                                        unsigned int K=100, int num_threads=0, show_progress=True):
+                                        unsigned int K=100, int num_threads=0, show_progress=True,
+                                        mininterval = 0.1):
     """Computes the Conditional Probability-Based Item Similarity in parallel.
     
     Only computes top-K similar items per item to avoid memory issues.
@@ -223,7 +224,7 @@ def conditional_probability_similarity(users, double alpha=0.5, bint row_normali
     cdef double basket_size, row_norm, w1, w2, denom, numer
     cdef int result_size
 
-    progress = tqdm(total=m_items, disable=not show_progress)
+    progress = tqdm(total=m_items, disable=not show_progress, mininterval = mininterval)
 
     cdef double[:] values = np.zeros(m_items * K)
     cdef long[:] rows = np.zeros(m_items * K, dtype=np.intp)
