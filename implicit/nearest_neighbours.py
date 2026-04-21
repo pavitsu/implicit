@@ -2,7 +2,7 @@ import numpy as np
 from numpy import bincount, log, log1p, sqrt
 from scipy.sparse import coo_matrix, csr_matrix
 
-from ._nearest_neighbours import NearestNeighboursScorer, all_pairs_knn
+from ._nearest_neighbours import NearestNeighboursScorer, all_pairs_knn, conditional_probability_similarity
 from .recommender_base import RecommenderBase
 from .utils import _batch_call
 
@@ -250,3 +250,43 @@ def bm25_weight(X, K1=100, B=0.8):
     # weight matrix rows by bm25
     X.data = X.data * (K1 + 1.0) / (K1 * length_norm[X.row] + X.data) * idf[X.col]
     return X
+
+
+class ConditionalProbabilityRecommender(ItemItemRecommender):
+    """An Item-Item Recommender using Conditional Probability-Based Item Similarity.
+
+    This implements the similarity measure described in
+    "Item-Based Top-N Recommendation Algorithms" (Deshpande & Karypis, 2003).
+
+    Parameters
+    ----------
+    K : int, optional
+        The number of neighbours to include when calculating the item-item
+        similarity matrix
+    alpha : float, optional (default=0.5)
+        The scaling parameter to penalize frequently purchased items.
+        Range is [0, 1]. alpha=0 is raw conditional probability.
+    row_normalize : bool, optional (default=False)
+        If True, applies Formula 3 from the paper: gives more weight to
+        co-occurrences from users with smaller basket sizes.
+    num_threads : int, optional
+        The number of threads to use for fitting the model. Specifying 0
+        means to default to the number of cores on the machine.
+    """
+
+    def __init__(self, K=20, alpha=0.5, row_normalize=False, num_threads=0):
+        super().__init__(K, num_threads)
+        self.alpha = alpha
+        self.row_normalize = row_normalize
+
+    def fit(self, counts, show_progress=True, callback=None):
+        """Computes and stores the similarity matrix using conditional probability."""
+        self.similarity = conditional_probability_similarity(
+            counts,
+            alpha=self.alpha,
+            row_normalize=self.row_normalize,
+            K=self.K,
+            num_threads=self.num_threads,
+            show_progress=show_progress,
+        ).tocsr()
+        self.scorer = NearestNeighboursScorer(self.similarity)

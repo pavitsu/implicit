@@ -168,3 +168,115 @@ def all_pairs_knn(users, unsigned int K=100, int num_threads=0, show_progress=Tr
     progress.close()
     return scipy.sparse.coo_matrix((values, (rows, cols)),
                                    shape=(item_count, item_count))
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def conditional_probability_similarity(users, double alpha=0.5, bint row_normalize=False,
+                                        unsigned int K=100, int num_threads=0, show_progress=True):
+    """Computes the Conditional Probability-Based Item Similarity in parallel.
+    
+    Only computes top-K similar items per item to avoid memory issues.
+    
+    Parameters
+    ----------
+    users : csr_matrix
+        User-Item matrix of shape (n_users, m_items)
+    alpha : double
+        Scaling parameter to penalize frequently purchased items [0, 1]
+    row_normalize : bool
+        If True, applies Formula 3 (gives more weight to smaller baskets)
+    K : int
+        Number of top similar items to keep per item
+    num_threads : int
+        Number of threads for parallel computation
+    show_progress : bool
+        
+    Returns
+    -------
+    scipy.sparse.csr_matrix
+        (m_items, m_items) similarity matrix with only K non-zero elements per row
+    """
+    users = check_csr(users)
+    users = users.astype(np.float64)
+    items = users.T.tocsr()
+
+    cdef int m_items = items.shape[0]
+    cdef int n_users = users.shape[0]
+    cdef int i, u, index1, index2, j
+
+    cdef int[:] item_indptr = items.indptr, item_indices = items.indices
+    cdef double[:] item_data = items.data
+
+    cdef int[:] user_indptr = users.indptr, user_indices = users.indices
+    cdef double[:] user_data = users.data
+
+    item_freqs = np.array(users.sum(axis=0), dtype=np.float64).flatten()
+    cdef double[:] item_freqs_view = item_freqs
+    cdef double[:] freq_u_alpha = np.power(item_freqs, alpha)
+    cdef double[:] freq_u_alpha_view = freq_u_alpha
+
+    cdef SparseMatrixMultiplier[int, double] * neighbours
+    cdef TopK[int, double] * topk
+    cdef pair[double, int] result
+
+    cdef double basket_size, row_norm, w1, w2, denom, numer
+    cdef int result_size
+
+    progress = tqdm(total=m_items, disable=not show_progress)
+
+    cdef double[:] values = np.zeros(m_items * K)
+    cdef long[:] rows = np.zeros(m_items * K, dtype=np.intp)
+    cdef long[:] cols = np.zeros(m_items * K, dtype=np.intp)
+
+    with nogil, parallel(num_threads=num_threads):
+        neighbours = new SparseMatrixMultiplier[int, double](m_items)
+        topk = new TopK[int, double](K)
+
+        try:
+            for i in prange(m_items, schedule='dynamic', chunksize=1):
+                for index1 in range(item_indptr[i], item_indptr[i+1]):
+                    u = item_indices[index1]
+                    w1 = item_data[index1]
+
+                    if row_normalize:
+                        basket_size = 0
+                        for index2 in range(user_indptr[u], user_indptr[u+1]):
+                            basket_size = basket_size + 1.0
+                        if basket_size > 0:
+                            row_norm = basket_size ** 0.5
+                        else:
+                            row_norm = 1.0
+                        w1 = w1 / row_norm
+
+                    for index2 in range(user_indptr[u], user_indptr[u+1]):
+                        w2 = user_data[index2]
+                        neighbours.add(user_indices[index2], w2 * w1)
+
+                topk.results.clear()
+                neighbours.foreach(dereference(topk))
+
+                index2 = K * i
+
+                for result in topk.results:
+                    rows[index2] = i
+                    cols[index2] = result.second
+                    numer = result.first
+                    with gil:
+                        denom = item_freqs_view[i] * (freq_u_alpha_view[result.second])
+                        if denom > 0:
+                            values[index2] = numer / denom
+                        else:
+                            values[index2] = 0.0
+                    index2 = index2 + 1
+
+                with gil:
+                    progress.update(1)
+
+        finally:
+            del neighbours
+            del topk
+
+    progress.close()
+
+    return scipy.sparse.csr_matrix((values, (rows, cols)), shape=(m_items, m_items))
