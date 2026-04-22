@@ -188,9 +188,9 @@ class ItemItemRecommender(RecommenderBase):
 class CosineRecommender(ItemItemRecommender):
     """An Item-Item Recommender on Cosine distances between items"""
 
-    def fit(self, counts, show_progress=True, callback=None):
+    def fit(self, counts, show_progress=True, callback=None, mininterval = 0.1):
         # cosine distance is just the dot-product of a normalized matrix
-        ItemItemRecommender.fit(self, normalize(counts.T).T, show_progress, callback)
+        ItemItemRecommender.fit(self, normalize(counts.T).T, show_progress, callback, mininterval = mininterval)
 
 
 class TFIDFRecommender(ItemItemRecommender):
